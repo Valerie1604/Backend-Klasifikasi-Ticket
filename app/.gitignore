@@ -1,0 +1,40 @@
+# --- Python General ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Environment & Virtual Env ---
+# Folder virtual environment (sesuaikan jika namanya beda)
+venv/
+env/
+.venv/
+
+# --- Environment Variables (PENTING: Jangan upload secret) ---
+.env
+.env.local
+
+# --- Database ---
+# Jangan upload database lokal
+*.sqlite3
+db.sqlite3
+
+# --- IDE / Editor Settings ---
+.vscode/
+.idea/
+.DS_Store
+
+# --- Machine Learning / Model Artifacts ---
+# Model yang ukurannya besar jangan di-commit ke Git biasa
+*.safetensors
+*.bin
+*.h5
+*.pt
+*.pth
+
+# Pickle files (objek python yang diserialisasi, biasanya binary)
+*.pkl
+
+# Catatan: File config json/txt di folder model biasanya
+# BOLEH di-upload karena ukurannya kecil, kecuali generated.
+# Jika ingin ignore folder model seluruhnya, hapus tanda pagar di bawah:
+# app/model/

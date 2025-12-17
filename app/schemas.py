@@ -37,3 +37,40 @@ class TicketOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+# === SCHEMA USER & LOGIN ===
+
+# Schema untuk Token response
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    role: str
+    identifier: str
+
+# Schema data dalam Token
+class TokenData(BaseModel):
+    identifier: Optional[str] = None
+    role: Optional[str] = None
+
+# Schema untuk Input Login
+class LoginRequest(BaseModel):
+    identifier: str  # Input NIM atau NIP disini
+    password: str
+
+# Schema untuk membuat User baru (Register)
+class UserCreate(BaseModel):
+    identifier: str # NIM / NIP
+    password: str
+    nama_lengkap: str
+    role: str = "mahasiswa" # Default role
+
+# Schema untuk output User (tanpa password)
+class UserOut(BaseModel):
+    id: int
+    identifier: str
+    nama_lengkap: str
+    role: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True

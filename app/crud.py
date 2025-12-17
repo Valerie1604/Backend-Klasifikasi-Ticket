@@ -1,4 +1,6 @@
 from sqlalchemy.orm import Session
+
+from .security import get_password_hash
 from . import models, schemas
 
 def create_ticket(db: Session, ticket: schemas.TicketCreate):
@@ -39,3 +41,21 @@ def update_ticket_status(db: Session, ticket_id: int, new_status: str):
     db.commit()
     db.refresh(ticket)
     return ticket
+
+# === CRUD USER ===
+
+def get_user_by_identifier(db: Session, identifier: str):
+    return db.query(models.User).filter(models.User.identifier == identifier).first()
+
+def create_user(db: Session, user: schemas.UserCreate):
+    hashed_password = get_password_hash(user.password)
+    db_user = models.User(
+        identifier=user.identifier,
+        password=hashed_password,
+        nama_lengkap=user.nama_lengkap,
+        role=user.role
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user

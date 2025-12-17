@@ -1,9 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
-from . import models, schemas, crud, security # Import security
+from . import models, schemas, crud, security
 from .database import SessionLocal, engine
 from .model_loader import ModelWrapper
 import os
@@ -13,14 +12,21 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Ticketing Classifier API")
 
-# CORS setup (Tetap sama)
-origins = ["*"] # Buka untuk semua origin sementara development
+# CORS setup
+# PENTING: Jika pakai Cookie, allow_origins TIDAK BOLEH ["*"]. 
+# Harus spesifik url frontend, misal "http://localhost:3000" atau "http://localhost:5173"
+origins = [
+    "http://localhost:3000", 
+    "http://localhost:5173",
+    "http://127.0.0.1:3000"
+] 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_credentials=True, # Wajib True agar cookie bisa dikirim
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
 )
 
 # Dependency DB
@@ -31,48 +37,38 @@ def get_db():
     finally:
         db.close()
 
-# Load Model (Tetap sama)
+# Load Model
 MODEL_DIR = os.environ.get("MODEL_DIR", "app/model")
 model_wrapper = ModelWrapper(MODEL_DIR)
 
-# Auth Configuration
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
 # ==========================================
-# AUTHENTICATION ROUTES
+# AUTHENTICATION ROUTES (COOKIES VERSION)
 # ==========================================
 
 @app.post("/register", response_model=schemas.UserOut)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    """
-    Endpoint untuk mendaftarkan user baru (Mahasiswa/Pegawai/Super Admin).
-    Gunakan ini untuk membuat user pertama kali.
-    """
     db_user = crud.get_user_by_identifier(db, identifier=user.identifier)
     if db_user:
         raise HTTPException(status_code=400, detail="NIM/NIP sudah terdaftar")
     
-    # Validasi Role
     valid_roles = ["mahasiswa", "pegawai/dosen", "super admin"]
     if user.role not in valid_roles:
          raise HTTPException(status_code=400, detail=f"Role harus salah satu dari: {valid_roles}")
 
     return crud.create_user(db=db, user=user)
 
-@app.post("/login", response_model=schemas.Token)
-def login(login_req: schemas.LoginRequest, db: Session = Depends(get_db)):
+@app.post("/login")
+def login(response: Response, login_req: schemas.LoginRequest, db: Session = Depends(get_db)):
     """
-    Endpoint Login. Input: NIM/NIP (identifier) dan Password.
-    Output: Access Token JWT dan Role.
+    Login user dan set HttpOnly Cookie.
+    Tidak lagi mengembalikan token di body response.
     """
     user = crud.get_user_by_identifier(db, identifier=login_req.identifier)
     
-    # Cek apakah user ada dan password benar
     if not user or not security.verify_password(login_req.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="NIM/NIP atau Password salah",
-            headers={"WWW-Authenticate": "Bearer"},
         )
     
     # Buat Token
@@ -82,20 +78,56 @@ def login(login_req: schemas.LoginRequest, db: Session = Depends(get_db)):
         expires_delta=access_token_expires
     )
     
+    # SET COOKIE
+    # httponly=True -> JavaScript tidak bisa baca cookie ini (Aman dari XSS)
+    # samesite="lax" -> Proteksi CSRF standar
+    # secure=False -> Gunakan False untuk localhost (http). Ganti True jika sudah https (production)
+    response.set_cookie(
+        key="access_token", 
+        value=f"Bearer {access_token}", 
+        httponly=True, 
+        max_age=security.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        expires=security.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        samesite="lax",
+        secure=False 
+    )
+    
     return {
-        "access_token": access_token, 
-        "token_type": "bearer", 
+        "message": "Login berhasil", 
         "role": user.role,
         "identifier": user.identifier
     }
 
-# Dependency untuk mendapatkan user yang sedang login (Proteksi Route)
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+@app.post("/logout")
+def logout(response: Response):
+    """
+    Logout dengan cara menghapus cookie access_token.
+    """
+    response.delete_cookie(key="access_token")
+    return {"message": "Logout berhasil"}
+
+# Dependency untuk mendapatkan user dari COOKIE
+def get_current_user(request: Request, db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    # Ambil token dari Cookie
+    token_cookie = request.cookies.get("access_token")
+    
+    if not token_cookie:
+        raise credentials_exception
+
+    # Token biasanya formatnya "Bearer eyJhbG..." kita perlu split
+    try:
+        scheme, token = token_cookie.split()
+        if scheme.lower() != "bearer":
+            raise credentials_exception
+    except ValueError:
+        # Jika format tidak sesuai (misal tidak ada "Bearer ")
+        raise credentials_exception
+
     try:
         payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
         identifier: str = payload.get("sub")
@@ -115,18 +147,16 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 # TICKETING ROUTES
 # ==========================================
 
-# Endpoint contoh yang diproteksi (Hanya user login yang bisa akses)
 @app.get("/users/me", response_model=schemas.UserOut)
 def read_users_me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
-# ======== ROUTES TICKET LAMA (TETAP SAMA) ========
-# Anda bisa menambahkan Depends(get_current_user) pada endpoint di bawah 
-# jika ingin mewajibkan login untuk membuat/melihat tiket.
+# ... (Sisa kode ke bawah sama persis seperti sebelumnya) ...
+# ... (Route predict, tickets, create_ticket, dll tetap sama) ...
+# Cukup pastikan route yang butuh login menggunakan Depends(get_current_user)
 
 @app.post("/predict", response_model=schemas.PredictResponse)
 def predict(req: schemas.PredictRequest):
-    # ... logic lama ...
     if not req.text or req.text.strip() == "":
         raise HTTPException(status_code=400, detail="Text is empty")
     category, scores = model_wrapper.predict(req.text)
@@ -136,10 +166,9 @@ def predict(req: schemas.PredictRequest):
 def create_ticket(
     ticket: schemas.TicketCreate, 
     db: Session = Depends(get_db),
-    # Uncomment baris bawah ini jika pembuatan tiket WAJIB login:
+    # Uncomment jika ingin protect:
     # current_user: models.User = Depends(get_current_user) 
 ):
-    # Jika frontend tidak mengirim category → auto predict
     if not ticket.category:
         text_for_pred = ticket.masalah + (". " + ticket.deskripsi if ticket.deskripsi else "")
         category, _ = model_wrapper.predict(text_for_pred)
@@ -164,11 +193,8 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
 def update_category(
     ticket_id: int, 
     payload: schemas.TicketUpdateCategory, 
-    db: Session = Depends(get_db),
-    # Disarankan endpoint ini diproteksi khusus Admin/Pegawai
-    # current_user: models.User = Depends(get_current_user) 
+    db: Session = Depends(get_db)
 ):
-    # Logic tambahan untuk cek role admin bisa ditaruh di sini
     ticket = crud.update_ticket_category(db, ticket_id, payload.category)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")

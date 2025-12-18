@@ -13,8 +13,6 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Ticketing Classifier API")
 
 # CORS setup
-# PENTING: Jika pakai Cookie, allow_origins TIDAK BOLEH ["*"]. 
-# Harus spesifik url frontend, misal "http://localhost:3000" atau "http://localhost:5173"
 origins = [
     "http://localhost:3000", 
     "http://localhost:5173",
@@ -24,7 +22,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True, # Wajib True agar cookie bisa dikirim
+    allow_credentials=True, 
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,7 +59,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 def login(response: Response, login_req: schemas.LoginRequest, db: Session = Depends(get_db)):
     """
     Login user dan set HttpOnly Cookie.
-    Tidak lagi mengembalikan token di body response.
+    PERBAIKAN: Sekarang mengembalikan nama_lengkap di response body.
     """
     user = crud.get_user_by_identifier(db, identifier=login_req.identifier)
     
@@ -79,9 +77,6 @@ def login(response: Response, login_req: schemas.LoginRequest, db: Session = Dep
     )
     
     # SET COOKIE
-    # httponly=True -> JavaScript tidak bisa baca cookie ini (Aman dari XSS)
-    # samesite="lax" -> Proteksi CSRF standar
-    # secure=False -> Gunakan False untuk localhost (http). Ganti True jika sudah https (production)
     response.set_cookie(
         key="access_token", 
         value=f"Bearer {access_token}", 
@@ -92,17 +87,17 @@ def login(response: Response, login_req: schemas.LoginRequest, db: Session = Dep
         secure=False 
     )
     
+    # === PERBAIKAN DI SINI ===
+    # Tambahkan 'nama_lengkap' agar Frontend langsung bisa menampilkan nama
     return {
         "message": "Login berhasil", 
         "role": user.role,
-        "identifier": user.identifier
+        "identifier": user.identifier,
+        "nama_lengkap": user.nama_lengkap 
     }
 
 @app.post("/logout")
 def logout(response: Response):
-    """
-    Logout dengan cara menghapus cookie access_token.
-    """
     response.delete_cookie(key="access_token")
     return {"message": "Logout berhasil"}
 
@@ -113,19 +108,16 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         detail="Could not validate credentials",
     )
     
-    # Ambil token dari Cookie
     token_cookie = request.cookies.get("access_token")
     
     if not token_cookie:
         raise credentials_exception
 
-    # Token biasanya formatnya "Bearer eyJhbG..." kita perlu split
     try:
         scheme, token = token_cookie.split()
         if scheme.lower() != "bearer":
             raise credentials_exception
     except ValueError:
-        # Jika format tidak sesuai (misal tidak ada "Bearer ")
         raise credentials_exception
 
     try:
@@ -151,10 +143,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 def read_users_me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
-# ... (Sisa kode ke bawah sama persis seperti sebelumnya) ...
-# ... (Route predict, tickets, create_ticket, dll tetap sama) ...
-# Cukup pastikan route yang butuh login menggunakan Depends(get_current_user)
-
 @app.post("/predict", response_model=schemas.PredictResponse)
 def predict(req: schemas.PredictRequest):
     if not req.text or req.text.strip() == "":
@@ -166,7 +154,6 @@ def predict(req: schemas.PredictRequest):
 def create_ticket(
     ticket: schemas.TicketCreate, 
     db: Session = Depends(get_db),
-    # Uncomment jika ingin protect:
     # current_user: models.User = Depends(get_current_user) 
 ):
     if not ticket.category:

@@ -6,8 +6,8 @@ import enum
 # Definisi Enum untuk Role agar konsisten
 class UserRole(str, enum.Enum):
     MAHASISWA = "mahasiswa"
-    PEGAWAI = "pegawai/dosen"
-    SUPER_ADMIN = "super admin"
+    PEGAWAI = "pegawai"
+    ADMIN = "admin"
 
 class Ticket(Base):
     __tablename__ = "tickets"

@@ -21,6 +21,13 @@ class Ticket(Base):
     category = Column(String(150), nullable=True)
     status = Column(String(50), default="Pengajuan")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # --- TAMBAHKAN BAGIAN INI ---
+    @property
+    def nomor_resi(self):
+        # Format id menjadi 5 digit dengan awalan TCK-
+        # Contoh: ID 1 -> TCK-00001, ID 23 -> TCK-00023
+        return f"TCK-{self.id:05d}"
 
 # --- Tambahan Model User ---
 class User(Base):

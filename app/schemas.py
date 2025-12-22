@@ -26,6 +26,7 @@ class TicketUpdateStatus(BaseModel):
 
 class TicketOut(BaseModel):
     id: int
+    nomor_resi: str
     nama: Optional[str]
     instansi: Optional[str]
     tanggal_pengajuan: Optional[str]

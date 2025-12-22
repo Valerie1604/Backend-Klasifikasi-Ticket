@@ -51,7 +51,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="NIM/NIP sudah terdaftar")
     
-    valid_roles = ["mahasiswa", "pegawai/dosen", "super admin"]
+    valid_roles = ["mahasiswa", "pegawai", "admin"]
     if user.role not in valid_roles:
          raise HTTPException(status_code=400, detail=f"Role harus salah satu dari: {valid_roles}")
 

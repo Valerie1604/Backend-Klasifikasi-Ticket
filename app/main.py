@@ -95,7 +95,8 @@ def login(response: Response, login_req: schemas.LoginRequest, db: Session = Dep
     return {
         "message": "Login berhasil", 
         "role": user.role,
-        "identifier": user.identifier
+        "identifier": user.identifier,
+        "nama_lengkap": user.nama_lengkap
     }
 
 @app.post("/logout")

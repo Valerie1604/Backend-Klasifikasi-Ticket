@@ -13,18 +13,17 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Ticketing Classifier API")
 
 # CORS setup
-# PENTING: Jika pakai Cookie, allow_origins TIDAK BOLEH ["*"]. 
-# Harus spesifik url frontend, misal "http://localhost:3000" atau "http://localhost:5173"
 origins = [
     "http://localhost:3000", 
     "http://localhost:5173",
-    "http://127.0.0.1:3000"
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",  # <--- TAMBAHKAN INI (PENTING!)
 ] 
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True, # Wajib True agar cookie bisa dikirim
+    allow_credentials=True, 
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -42,7 +41,7 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "app/model")
 model_wrapper = ModelWrapper(MODEL_DIR)
 
 # ==========================================
-# AUTHENTICATION ROUTES (COOKIES VERSION)
+# AUTHENTICATION ROUTES
 # ==========================================
 
 @app.post("/register", response_model=schemas.UserOut)
@@ -59,10 +58,6 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/login")
 def login(response: Response, login_req: schemas.LoginRequest, db: Session = Depends(get_db)):
-    """
-    Login user dan set HttpOnly Cookie.
-    Tidak lagi mengembalikan token di body response.
-    """
     user = crud.get_user_by_identifier(db, identifier=login_req.identifier)
     
     if not user or not security.verify_password(login_req.password, user.password):
@@ -71,17 +66,12 @@ def login(response: Response, login_req: schemas.LoginRequest, db: Session = Dep
             detail="NIM/NIP atau Password salah",
         )
     
-    # Buat Token
     access_token_expires = security.timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
         data={"sub": user.identifier, "role": user.role}, 
         expires_delta=access_token_expires
     )
     
-    # SET COOKIE
-    # httponly=True -> JavaScript tidak bisa baca cookie ini (Aman dari XSS)
-    # samesite="lax" -> Proteksi CSRF standar
-    # secure=False -> Gunakan False untuk localhost (http). Ganti True jika sudah https (production)
     response.set_cookie(
         key="access_token", 
         value=f"Bearer {access_token}", 
@@ -101,32 +91,25 @@ def login(response: Response, login_req: schemas.LoginRequest, db: Session = Dep
 
 @app.post("/logout")
 def logout(response: Response):
-    """
-    Logout dengan cara menghapus cookie access_token.
-    """
     response.delete_cookie(key="access_token")
     return {"message": "Logout berhasil"}
 
-# Dependency untuk mendapatkan user dari COOKIE
+# Dependency User
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
     )
     
-    # Ambil token dari Cookie
     token_cookie = request.cookies.get("access_token")
-    
     if not token_cookie:
         raise credentials_exception
 
-    # Token biasanya formatnya "Bearer eyJhbG..." kita perlu split
     try:
         scheme, token = token_cookie.split()
         if scheme.lower() != "bearer":
             raise credentials_exception
     except ValueError:
-        # Jika format tidak sesuai (misal tidak ada "Bearer ")
         raise credentials_exception
 
     try:
@@ -152,10 +135,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 def read_users_me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
-# ... (Sisa kode ke bawah sama persis seperti sebelumnya) ...
-# ... (Route predict, tickets, create_ticket, dll tetap sama) ...
-# Cukup pastikan route yang butuh login menggunakan Depends(get_current_user)
-
 @app.post("/predict", response_model=schemas.PredictResponse)
 def predict(req: schemas.PredictRequest):
     if not req.text or req.text.strip() == "":
@@ -167,27 +146,37 @@ def predict(req: schemas.PredictRequest):
 def create_ticket(
     ticket: schemas.TicketCreate, 
     db: Session = Depends(get_db),
-    # Uncomment jika ingin protect:
-    # current_user: models.User = Depends(get_current_user) 
+    current_user: models.User = Depends(get_current_user) # Wajib Login
 ):
     if not ticket.category:
         text_for_pred = ticket.masalah + (". " + ticket.deskripsi if ticket.deskripsi else "")
         category, _ = model_wrapper.predict(text_for_pred)
         ticket.category = category
 
-    db_ticket = crud.create_ticket(db, ticket)
+    # Pass user_id ke CRUD
+    db_ticket = crud.create_ticket(db, ticket, user_id=current_user.id)
     return db_ticket
 
 @app.get("/tickets", response_model=list[schemas.TicketOut])
-def list_tickets(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    tickets = crud.get_tickets(db, skip=skip, limit=limit)
+def list_tickets(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # Wajib Login
+):
+    # Pass object user ke CRUD untuk difilter
+    tickets = crud.get_tickets(db, user=current_user, skip=skip, limit=limit)
     return tickets
 
 @app.get("/tickets/{ticket_id}", response_model=schemas.TicketOut)
-def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
-    ticket = crud.get_ticket(db, ticket_id)
+def get_ticket(
+    ticket_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # Wajib Login
+):
+    ticket = crud.get_ticket(db, ticket_id, user=current_user)
     if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+        raise HTTPException(status_code=404, detail="Ticket not found or access denied")
     return ticket
 
 @app.put("/tickets/{ticket_id}/category", response_model=schemas.TicketOut)

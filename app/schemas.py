@@ -16,7 +16,7 @@ class TicketCreate(BaseModel):
     tanggal_pengajuan: Optional[str] = None
     masalah: str
     deskripsi: Optional[str] = None
-    category: Optional[str] = None  # optional, can be provided by frontend
+    category: Optional[str] = None 
 
 class TicketUpdateCategory(BaseModel):
     category: str
@@ -35,37 +35,33 @@ class TicketOut(BaseModel):
     category: Optional[str]
     status: str
     created_at: datetime
+    owner_id: Optional[int] = None  # Tambahan field
 
     class Config:
         orm_mode = True
 
 # === SCHEMA USER & LOGIN ===
 
-# Schema untuk Token response
 class Token(BaseModel):
     access_token: str
     token_type: str
     role: str
     identifier: str
 
-# Schema data dalam Token
 class TokenData(BaseModel):
     identifier: Optional[str] = None
     role: Optional[str] = None
 
-# Schema untuk Input Login
 class LoginRequest(BaseModel):
-    identifier: str  # Input NIM atau NIP disini
+    identifier: str
     password: str
 
-# Schema untuk membuat User baru (Register)
 class UserCreate(BaseModel):
-    identifier: str # NIM / NIP
+    identifier: str 
     password: str
     nama_lengkap: str
-    role: str = "mahasiswa" # Default role
+    role: str = "mahasiswa" 
 
-# Schema untuk output User (tanpa password)
 class UserOut(BaseModel):
     id: int
     identifier: str
